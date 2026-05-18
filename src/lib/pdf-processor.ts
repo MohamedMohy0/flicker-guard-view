@@ -1,4 +1,3 @@
-
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
@@ -11,11 +10,13 @@ export interface ProcessedPage {
   h: number;
 }
 
-// Noise amplitude — higher = more camera disruption, but reduces eye comfort.
-// 55 is a sweet spot: page still reads clearly to the eye, cameras get destroyed.
-const NOISE_AMPLITUDE = 250;
-// Block size for noise — larger blocks survive camera downsampling/compression.
-const NOISE_BLOCK = 10;
+// إعدادات الحماية - قيم منخفضة جداً للحفاظ على راحة العين
+const ANTI_CAMERA_CONFIG = {
+  SUBTLE_NOISE: 3,        // تشويش خفي (0-10) - العين لا تراه
+  BRIGHTNESS_SHIFT: 6,    // تغيير السطوع بين الإطارات (0-20)
+  PATTERN_DENSITY: 2,     // كثافة النمط الشبكي (1-4)
+  ENHANCE_SHARPNESS: 2,   // تحسين وضوح الإطار الطبيعي
+};
 
 export async function processPdf(
   file: File,
@@ -49,8 +50,12 @@ export async function processPdf(
 }
 
 function buildComplementaryFrames(src: ImageData, w: number, h: number) {
-  const cvA = document.createElement("canvas"); cvA.width = w; cvA.height = h;
-  const cvB = document.createElement("canvas"); cvB.width = w; cvB.height = h;
+  const cvA = document.createElement("canvas"); 
+  cvA.width = w; 
+  cvA.height = h;
+  const cvB = document.createElement("canvas"); 
+  cvB.width = w; 
+  cvB.height = h;
   const cxA = cvA.getContext("2d")!;
   const cxB = cvB.getContext("2d")!;
   const imgA = cxA.createImageData(w, h);
@@ -59,48 +64,78 @@ function buildComplementaryFrames(src: ImageData, w: number, h: number) {
   const aD = imgA.data;
   const bD = imgB.data;
 
-  // Pre-generate per-block noise so neighbors share noise → survives camera downsampling.
-  const blocksW = Math.ceil(w / NOISE_BLOCK);
-  const blocksH = Math.ceil(h / NOISE_BLOCK);
-  const noiseR = new Int16Array(blocksW * blocksH);
-  const noiseG = new Int16Array(blocksW * blocksH);
-  const noiseB = new Int16Array(blocksW * blocksH);
-  for (let i = 0; i < noiseR.length; i++) {
-    noiseR[i] = (Math.random() * 2 - 1) * NOISE_AMPLITUDE;
-    noiseG[i] = (Math.random() * 2 - 1) * NOISE_AMPLITUDE;
-    noiseB[i] = (Math.random() * 2 - 1) * NOISE_AMPLITUDE;
-  }
+  // توليد الإطارات
+  for (let i = 0; i < sd.length; i += 4) {
+    // الإطار A: صورة طبيعية محسنة للرؤية البشرية
+    aD[i] = Math.min(255, sd[i] + ANTI_CAMERA_CONFIG.ENHANCE_SHARPNESS);
+    aD[i+1] = Math.min(255, sd[i+1] + ANTI_CAMERA_CONFIG.ENHANCE_SHARPNESS);
+    aD[i+2] = Math.min(255, sd[i+2] + ANTI_CAMERA_CONFIG.ENHANCE_SHARPNESS);
+    aD[i+3] = 255;
 
-  for (let y = 0; y < h; y++) {
-    const by = Math.floor(y / NOISE_BLOCK);
-    for (let x = 0; x < w; x++) {
-      const bx = Math.floor(x / NOISE_BLOCK);
-      const bi = by * blocksW + bx;
-      const i = (y * w + x) * 4;
-      const nR = noiseR[bi];
-      const nG = noiseG[bi];
-      const nB = noiseB[bi];
-      aD[i]     = clamp(sd[i]     + nR);
-      aD[i + 1] = clamp(sd[i + 1] + nG);
-      aD[i + 2] = clamp(sd[i + 2] + nB);
-      aD[i + 3] = 255;
-      bD[i]     = clamp(sd[i]     - nR);
-      bD[i + 1] = clamp(sd[i + 1] - nG);
-      bD[i + 2] = clamp(sd[i + 2] - nB);
-      bD[i + 3] = 255;
-    }
+    // الإطار B: معكوس جزئياً + تشويش خفي - هذا ماستراه الكاميرا
+    const randomNoiseR = (Math.random() - 0.5) * ANTI_CAMERA_CONFIG.SUBTLE_NOISE;
+    const randomNoiseG = (Math.random() - 0.5) * ANTI_CAMERA_CONFIG.SUBTLE_NOISE;
+    const randomNoiseB = (Math.random() - 0.5) * ANTI_CAMERA_CONFIG.SUBTLE_NOISE;
+    
+    bD[i] = Math.max(0, Math.min(255, 
+      (255 - sd[i]) + randomNoiseR - ANTI_CAMERA_CONFIG.BRIGHTNESS_SHIFT
+    ));
+    bD[i+1] = Math.max(0, Math.min(255, 
+      (255 - sd[i+1]) + randomNoiseG - ANTI_CAMERA_CONFIG.BRIGHTNESS_SHIFT
+    ));
+    bD[i+2] = Math.max(0, Math.min(255, 
+      (255 - sd[i+2]) + randomNoiseB - ANTI_CAMERA_CONFIG.BRIGHTNESS_SHIFT
+    ));
+    bD[i+3] = 255;
   }
 
   cxA.putImageData(imgA, 0, 0);
   cxB.putImageData(imgB, 0, 0);
+  
+  // تطبيق تقنيات إضافية ضد الكاميرا
+  applyAntiCameraTechniques(cvB);
+  
   return { a: cvA, b: cvB };
 }
 
-function clamp(v: number): number {
-  return v < 0 ? 0 : v > 255 ? 255 : v;
+function applyAntiCameraTechniques(canvas: HTMLCanvasElement) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  
+  const w = canvas.width;
+  const h = canvas.height;
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+  
+  // إضافة نمط شبكي دقيق جداً (غير مرئي للعين البشرية)
+  // هذا النمط يتداخل مع مستشعرات الكاميرا الرقمية
+  const step = ANTI_CAMERA_CONFIG.PATTERN_DENSITY;
+  for (let y = 0; y < h; y += step) {
+    for (let x = 0; x < w; x += step) {
+      const idx = (y * w + x) * 4;
+      // تقليل البكسلات في نمط منتظم
+      data[idx] = Math.max(0, data[idx] - 2);
+      data[idx + 1] = Math.max(0, data[idx + 1] - 2);
+      data[idx + 2] = Math.max(0, data[idx + 2] - 2);
+    }
+  }
+  
+  // إضافة تموج عالي التردد (High-frequency ripple)
+  // هذا يسبب تداخل (Aliasing) في الكاميرات الرقمية
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      const ripple = Math.sin(x * 0.5 + y * 0.3) * 2;
+      data[idx] = Math.max(0, Math.min(255, data[idx] + ripple));
+      data[idx + 1] = Math.max(0, Math.min(255, data[idx + 1] + ripple));
+      data[idx + 2] = Math.max(0, Math.min(255, data[idx + 2] + ripple));
+    }
+  }
+  
+  ctx.putImageData(imgData, 0, 0);
 }
 
 function toDataUrl(c: HTMLCanvasElement): string {
-  // PNG preserves the exact noise pattern; JPEG would smooth it and reduce protection.
+  // استخدام PNG للحفاظ على الدقة
   return c.toDataURL("image/png");
 }
