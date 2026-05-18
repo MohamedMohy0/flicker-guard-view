@@ -1,16 +1,24 @@
-// Client-side PDF processing: render each page and split into 2 interlaced layers
-// to defeat camera/screenshot capture via temporal multiplexing.
+// Client-side PDF processing using complementary temporal dithering.
+// Frame A = pixel + noise, Frame B = pixel - noise.
+// Human eye at 60Hz averages (A+B)/2 = original pixel (clear view).
+// Camera shutter captures only A or B → records heavy noise pattern.
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
 export interface ProcessedPage {
-  a: string; // data url
+  a: string;
   b: string;
   w: number;
   h: number;
 }
+
+// Noise amplitude — higher = more camera disruption, but reduces eye comfort.
+// 55 is a sweet spot: page still reads clearly to the eye, cameras get destroyed.
+const NOISE_AMPLITUDE = 55;
+// Block size for noise — larger blocks survive camera downsampling/compression.
+const NOISE_BLOCK = 3;
 
 export async function processPdf(
   file: File,
@@ -35,58 +43,67 @@ export async function processPdf(
     await page.render({ canvas, canvasContext: ctx, viewport }).promise;
 
     const img = ctx.getImageData(0, 0, w, h);
-    const layerA = createLayer(img, w, h, 0);
-    const layerB = createLayer(img, w, h, 1);
+    const { a, b } = buildComplementaryFrames(img, w, h);
 
-    out.push({
-      a: canvasToDataUrl(layerA),
-      b: canvasToDataUrl(layerB),
-      w, h,
-    });
+    out.push({ a: toDataUrl(a), b: toDataUrl(b), w, h });
     onProgress?.(i, pdf.numPages);
   }
   return out;
 }
 
-function createLayer(src: ImageData, w: number, h: number, parity: 0 | 1): HTMLCanvasElement {
-  const cv = document.createElement("canvas");
-  cv.width = w;
-  cv.height = h;
-  const cx = cv.getContext("2d")!;
-  // Mid-gray background — when alternated at 60Hz the eye averages it out toward the real image.
-  cx.fillStyle = "rgb(128,128,128)";
-  cx.fillRect(0, 0, w, h);
-
-  const out = cx.getImageData(0, 0, w, h);
+function buildComplementaryFrames(src: ImageData, w: number, h: number) {
+  const cvA = document.createElement("canvas"); cvA.width = w; cvA.height = h;
+  const cvB = document.createElement("canvas"); cvB.width = w; cvB.height = h;
+  const cxA = cvA.getContext("2d")!;
+  const cxB = cvB.getContext("2d")!;
+  const imgA = cxA.createImageData(w, h);
+  const imgB = cxB.createImageData(w, h);
   const sd = src.data;
-  const od = out.data;
+  const aD = imgA.data;
+  const bD = imgB.data;
+
+  // Pre-generate per-block noise so neighbors share noise → survives camera downsampling.
+  const blocksW = Math.ceil(w / NOISE_BLOCK);
+  const blocksH = Math.ceil(h / NOISE_BLOCK);
+  const noiseR = new Int16Array(blocksW * blocksH);
+  const noiseG = new Int16Array(blocksW * blocksH);
+  const noiseB = new Int16Array(blocksW * blocksH);
+  for (let i = 0; i < noiseR.length; i++) {
+    noiseR[i] = (Math.random() * 2 - 1) * NOISE_AMPLITUDE;
+    noiseG[i] = (Math.random() * 2 - 1) * NOISE_AMPLITUDE;
+    noiseB[i] = (Math.random() * 2 - 1) * NOISE_AMPLITUDE;
+  }
+
   for (let y = 0; y < h; y++) {
-    if (y % 2 !== parity) continue; // keep only this layer's rows
-    const rowStart = y * w * 4;
-    for (let x = 0; x < w * 4; x++) {
-      // Boost contrast: pull values away from midgray toward true value, doubled
-      const v = sd[rowStart + x];
-      if ((x & 3) === 3) { od[rowStart + x] = 255; continue; }
-      od[rowStart + x] = Math.max(0, Math.min(255, 2 * v - 128));
+    const by = Math.floor(y / NOISE_BLOCK);
+    for (let x = 0; x < w; x++) {
+      const bx = Math.floor(x / NOISE_BLOCK);
+      const bi = by * blocksW + bx;
+      const i = (y * w + x) * 4;
+      const nR = noiseR[bi];
+      const nG = noiseG[bi];
+      const nB = noiseB[bi];
+      aD[i]     = clamp(sd[i]     + nR);
+      aD[i + 1] = clamp(sd[i + 1] + nG);
+      aD[i + 2] = clamp(sd[i + 2] + nB);
+      aD[i + 3] = 255;
+      bD[i]     = clamp(sd[i]     - nR);
+      bD[i + 1] = clamp(sd[i + 1] - nG);
+      bD[i + 2] = clamp(sd[i + 2] - nB);
+      bD[i + 3] = 255;
     }
   }
-  cx.putImageData(out, 0, 0);
 
-  // Thin random noise lines — opposite direction per layer
-  cx.globalAlpha = 0.25;
-  cx.strokeStyle = parity === 0 ? "rgb(40,40,40)" : "rgb(220,220,220)";
-  cx.lineWidth = 1;
-  for (let k = 0; k < 8; k++) {
-    cx.beginPath();
-    const y0 = Math.random() * h;
-    cx.moveTo(0, y0);
-    cx.lineTo(w, y0 + (Math.random() - 0.5) * 20);
-    cx.stroke();
-  }
-  cx.globalAlpha = 1;
-  return cv;
+  cxA.putImageData(imgA, 0, 0);
+  cxB.putImageData(imgB, 0, 0);
+  return { a: cvA, b: cvB };
 }
 
-function canvasToDataUrl(c: HTMLCanvasElement): string {
-  return c.toDataURL("image/jpeg", 0.7);
+function clamp(v: number): number {
+  return v < 0 ? 0 : v > 255 ? 255 : v;
+}
+
+function toDataUrl(c: HTMLCanvasElement): string {
+  // PNG preserves the exact noise pattern; JPEG would smooth it and reduce protection.
+  return c.toDataURL("image/png");
 }
