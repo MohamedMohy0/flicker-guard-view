@@ -13,9 +13,9 @@ export interface ProcessedPage {
 
 // Noise amplitude — higher = more camera disruption, but reduces eye comfort.
 // 55 is a sweet spot: page still reads clearly to the eye, cameras get destroyed.
-const NOISE_AMPLITUDE = 100;
+const NOISE_AMPLITUDE = 200;
 // Block size for noise — larger blocks survive camera downsampling/compression.
-const NOISE_BLOCK = 5;
+const NOISE_BLOCK = 3;
 
 export async function processPdf(
   file: File,
