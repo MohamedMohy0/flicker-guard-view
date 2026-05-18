@@ -15,7 +15,7 @@ export interface ProcessedPage {
 // 55 is a sweet spot: page still reads clearly to the eye, cameras get destroyed.
 const NOISE_AMPLITUDE = 100;
 // Block size for noise — larger blocks survive camera downsampling/compression.
-const NOISE_BLOCK = 5;
+const NOISE_BLOCK = 20;
 
 export async function processPdf(
   file: File,
