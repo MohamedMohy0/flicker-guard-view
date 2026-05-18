@@ -90,15 +90,9 @@ function Viewer() {
 
     const draw = () => {
       if (ready && !blocked) {
+        // Alternate complementary frames every rAF tick.
+        // Eye averages A+B → clean image. Camera shutter samples one → noisy capture.
         ctx.drawImage(parity ? images.b : images.a, 0, 0);
-        // Add a faint per-frame noise pattern to ensure recorded frames also look corrupted
-        ctx.globalAlpha = 0.06;
-        ctx.fillStyle = parity ? "#000" : "#fff";
-        for (let i = 0; i < 12; i++) {
-          const y = Math.random() * pageData.h;
-          ctx.fillRect(0, y, pageData.w, 1);
-        }
-        ctx.globalAlpha = 1;
         parity ^= 1;
       } else if (blocked) {
         ctx.fillStyle = "#000";
