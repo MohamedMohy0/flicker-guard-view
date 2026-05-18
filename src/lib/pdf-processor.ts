@@ -1,7 +1,6 @@
 // Client-side PDF processing: render each page and split into 2 interlaced layers
 // to defeat camera/screenshot capture via temporal multiplexing.
 import * as pdfjs from "pdfjs-dist";
-// @ts-expect-error - vite ?url import
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
