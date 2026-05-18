@@ -13,7 +13,7 @@ export interface ProcessedPage {
 
 // Noise amplitude — higher = more camera disruption, but reduces eye comfort.
 // 55 is a sweet spot: page still reads clearly to the eye, cameras get destroyed.
-const NOISE_AMPLITUDE = 250;
+const NOISE_AMPLITUDE = 100;
 // Block size for noise — larger blocks survive camera downsampling/compression.
 const NOISE_BLOCK = 5;
 
