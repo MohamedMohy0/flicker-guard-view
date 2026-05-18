@@ -45,6 +45,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "PDF Shield — Secure Document Preview" },
       { name: "description", content: "Share PDFs with clients without risk of camera or screenshot theft." },
+      { property: "og:title", content: "PDF Shield — Secure Document Preview" },
+      { name: "twitter:title", content: "PDF Shield — Secure Document Preview" },
+      { property: "og:description", content: "Share PDFs with clients without risk of camera or screenshot theft." },
+      { name: "twitter:description", content: "Share PDFs with clients without risk of camera or screenshot theft." },
+      { name: "twitter:card", content: "summary" },
+      { property: "og:type", content: "website" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
