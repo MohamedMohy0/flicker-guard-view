@@ -1,7 +1,4 @@
-// Client-side PDF processing using complementary temporal dithering.
-// Frame A = pixel + noise, Frame B = pixel - noise.
-// Human eye at 60Hz averages (A+B)/2 = original pixel (clear view).
-// Camera shutter captures only A or B → records heavy noise pattern.
+
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
@@ -16,9 +13,9 @@ export interface ProcessedPage {
 
 // Noise amplitude — higher = more camera disruption, but reduces eye comfort.
 // 55 is a sweet spot: page still reads clearly to the eye, cameras get destroyed.
-const NOISE_AMPLITUDE = 55;
+const NOISE_AMPLITUDE = 100;
 // Block size for noise — larger blocks survive camera downsampling/compression.
-const NOISE_BLOCK = 3;
+const NOISE_BLOCK = 5;
 
 export async function processPdf(
   file: File,
