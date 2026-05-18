@@ -48,7 +48,7 @@ function Dashboard() {
       const { data, error } = await supabase.from("documents").insert({
         user_id: user.id,
         title: file.name.replace(/\.pdf$/i, ""),
-        pages,
+        pages: pages as unknown as never,
         page_count: pages.length,
       }).select("id").single();
       if (error) throw error;
