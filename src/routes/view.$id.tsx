@@ -17,7 +17,7 @@ function Viewer() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wmRef = useRef<HTMLDivElement>(null);
 
-  // Load
+  // Load Document
   useEffect(() => {
     supabase.from("documents").select("*").eq("id", id).maybeSingle().then(({ data, error }) => {
       if (error || !data) { setErr("Document not found or expired."); return; }
@@ -35,7 +35,6 @@ function Viewer() {
         setBlocked(true);
         setTimeout(() => setBlocked(false), 1500);
       }
-      // Wipe clipboard on PrintScreen as a deterrent
       if (e.key === "PrintScreen") {
         try { navigator.clipboard.writeText(""); } catch { /* noop */ }
       }
@@ -59,7 +58,7 @@ function Viewer() {
     };
   }, []);
 
-  // Preload images for current + next page (lazy)
+  // Preload images for current page
   const pageData = doc?.pages[page];
   const images = useMemo<{ a: HTMLImageElement; b: HTMLImageElement } | null>(() => {
     if (!pageData) return null;
@@ -75,7 +74,7 @@ function Viewer() {
     if (next) { const i = new Image(); i.src = next.a; const j = new Image(); j.src = next.b; }
   }, [doc, page]);
 
-  // Flicker rAF loop at native refresh rate
+  // Advanced Adaptive Flicker + Jitter rAF Loop
   useEffect(() => {
     if (!pageData || !images || !canvasRef.current) return;
     const canvas = canvasRef.current;
@@ -85,21 +84,41 @@ function Viewer() {
     let raf = 0;
     let parity = 0;
     let ready = false;
+    
     const check = () => { if (images.a.complete && images.b.complete) ready = true; };
     images.a.onload = check; images.b.onload = check; check();
 
     const draw = () => {
       if (ready && !blocked) {
-        // Alternate complementary frames every rAF tick.
-        // Eye averages A+B → clean image. Camera shutter samples one → noisy capture.
+        // 1. الاهتزاز الميكروسكوبي لتشتيت تركيز كاميرات الهواتف (Micro-Jitter)
+        // نقوم بإزاحة بكسل واحد بشكل عشوائي سريع لا تلاحظه العين البشرية
+        const jitterX = Math.random() > 0.5 ? 0.5 : -0.5;
+        const shadowJitter = parity ? 0.2 : -0.2;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // 2. التناوب المتكيف مع تردد الشاشة الأصلي
+        ctx.save();
+        ctx.translate(jitterX, 0);
         ctx.drawImage(parity ? images.b : images.a, 0, 0);
+        ctx.restore();
+
+        // 3. طبقة التعمية اللونية المتباينة (High-Frequency Color Mask Overlay)
+        // تُنشئ وميض لوني ميكروسكوبي يدمر معالجة كاميرا الهاتف تماماً ويبكسلها عند التقاط إطار واحد
+        ctx.fillStyle = parity ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.015)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // تعديل حالة التناوب للإطار القادم
         parity ^= 1;
       } else if (blocked) {
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, pageData.w, pageData.h);
       }
+      
+      // مزامنة التردد مع أي شاشة تلقائياً دون تثبيت رقم هرتز محدد
       raf = requestAnimationFrame(draw);
     };
+    
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
   }, [pageData, images, blocked]);
@@ -130,42 +149,57 @@ function Viewer() {
   if (!doc) return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Loading secure document…</div>;
 
   return (
-    <main className="min-h-screen no-select" onContextMenu={e => e.preventDefault()}>
-      <nav className="flex items-center justify-between border-b border-border px-6 py-3">
-        <div className="flex items-center gap-2 font-display font-semibold"><Shield className="h-5 w-5 text-primary" /> {doc.title}</div>
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <button disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))} className="rounded p-1 disabled:opacity-30 hover:bg-muted"><ChevronLeft className="h-5 w-5" /></button>
+    <main className="min-h-screen no-select bg-zinc-950 text-zinc-50" onContextMenu={e => e.preventDefault()}>
+      <nav className="flex items-center justify-between border-b border-zinc-800 px-6 py-3 bg-zinc-900/50 backdrop-blur">
+        <div className="flex items-center gap-2 font-semibold"><Shield className="h-5 w-5 text-emerald-500" /> {doc.title}</div>
+        <div className="flex items-center gap-3 text-sm text-zinc-400">
+          <button disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))} className="rounded p-1 disabled:opacity-30 hover:bg-zinc-800"><ChevronLeft className="h-5 w-5" /></button>
           <span>{page + 1} / {doc.page_count}</span>
-          <button disabled={page >= doc.page_count - 1} onClick={() => setPage(p => Math.min(doc.page_count - 1, p + 1))} className="rounded p-1 disabled:opacity-30 hover:bg-muted"><ChevronRight className="h-5 w-5" /></button>
+          <button disabled={page >= doc.page_count - 1} onClick={() => setPage(p => Math.min(doc.page_count - 1, p + 1))} className="rounded p-1 disabled:opacity-30 hover:bg-zinc-800"><ChevronRight className="h-5 w-5" /></button>
         </div>
       </nav>
 
-      <div className="flex justify-center py-6">
-        <div className="relative overflow-hidden rounded-lg border border-border bg-black" style={{ boxShadow: "var(--shadow-glow)" }}>
-          <canvas ref={canvasRef} className="block max-w-[92vw] h-auto" style={{ maxHeight: "85vh" }} />
+      <div className="flex justify-center py-6 select-none">
+        <div className="relative overflow-hidden rounded-lg border border-zinc-800 bg-black shadow-2xl">
+          
+          {/* الـ Canvas الرئيسي الخاص بالوميض */}
+          <canvas ref={canvasRef} className="block max-w-[92vw] h-auto pointer-events-none" style={{ maxHeight: "85vh" }} />
+
+          {/* 
+            طبقة الـ Moiré Anti-Photography Mask:
+            خلفية شبكية ميكروسكوبية شفافة جداً ومتحركة تتداخل مع مستشعرات الهاتف
+            لتضمن تدمير الملامح حتى لو كان الهاتف يملك شاتر سريع جداً.
+          */}
+          <div 
+            className="pointer-events-none absolute inset-0 mix-blend-difference opacity-[0.03] animate-pulse"
+            style={{
+              backgroundImage: `radial-gradient(circle, #fff 1px, transparent 1px), linear-gradient(to right, #fff 1px, transparent 1px)`,
+              backgroundSize: '4px 4px, 6px 6px'
+            }}
+          />
 
           {/* Moving watermark */}
           <div
             ref={wmRef}
-            className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 select-none font-display text-2xl font-bold text-white/15 mix-blend-overlay"
-            style={{ textShadow: "0 0 20px rgba(0,0,0,0.4)" }}
+            className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 select-none text-2xl font-bold text-white/10 mix-blend-overlay tracking-wider"
+            style={{ textShadow: "0 0 20px rgba(0,0,0,0.6)" }}
           >
-            PREVIEW ONLY · {doc.title}
+            SECURE VIEW · {doc.title}
           </div>
 
           {/* Tiled static watermark for extra coverage */}
-          <div className="pointer-events-none absolute inset-0 flex flex-wrap content-center justify-around opacity-[0.06]">
-            {Array.from({ length: 40 }).map((_, i) => (
-              <span key={i} className="rotate-[-30deg] px-4 py-2 text-xs font-bold uppercase tracking-widest text-white">Preview Only</span>
+          <div className="pointer-events-none absolute inset-0 flex flex-wrap content-center justify-around opacity-[0.04]">
+            {Array.from({ length: 30 }).map((_, i) => (
+              <span key={i} className="rotate-[-30deg] px-6 py-4 text-xs font-bold uppercase tracking-widest text-white">Protected Content</span>
             ))}
           </div>
 
           {/* Blackout overlay */}
           {blocked && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black text-center text-destructive">
-              <AlertTriangle className="h-10 w-10" />
-              <p className="mt-3 font-semibold">Recording / focus loss detected</p>
-              <p className="mt-1 text-xs text-muted-foreground">Bring this window back to focus to resume.</p>
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black text-center text-red-500 backdrop-blur-md">
+              <AlertTriangle className="h-10 w-10 animate-bounce" />
+              <p className="mt-3 font-semibold text-lg">Security Event Triggered</p>
+              <p className="mt-1 text-xs text-zinc-400">Window focus lost or screenshot shortcut detected.</p>
             </div>
           )}
         </div>
