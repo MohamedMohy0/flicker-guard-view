@@ -1,0 +1,1 @@
+drop policy if exists "Public read pdf-pages" on storage.objects;
