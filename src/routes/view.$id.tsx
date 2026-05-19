@@ -76,55 +76,33 @@ function Viewer() {
   }, [doc, page]);
 
   // Flicker rAF loop at native refresh rate
-  // استبدل الـ useEffect المسمى "Flicker rAF loop" بالكامل:
+  useEffect(() => {
+    if (!pageData || !images || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    canvas.width = pageData.w;
+    canvas.height = pageData.h;
+    const ctx = canvas.getContext("2d")!;
+    let raf = 0;
+    let parity = 0;
+    let ready = false;
+    const check = () => { if (images.a.complete && images.b.complete) ready = true; };
+    images.a.onload = check; images.b.onload = check; check();
 
-useEffect(() => {
-  if (!pageData || !images || !canvasRef.current) return;
-  const canvas = canvasRef.current;
-  canvas.width = pageData.w;
-  canvas.height = pageData.h;
-  const ctx = canvas.getContext("2d")!;
-
-  // رسم A كطبقة أساس
-  // ثم رسم B فوقها بـ "difference" blend mode
-  // النتيجة: العين تقرأ الدمج الطبيعي، الكاميرا تلتقط XOR
-
-  let raf = 0;
-  let t = 0;
-  const SWITCH_INTERVAL = 1; // ← كل إطار rAF، بدون تأخير
-
-  const draw = () => {
-    if (blocked) {
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, pageData.w, pageData.h);
-      raf = requestAnimationFrame(draw);
-      return;
-    }
-
-    if (images.a.complete && images.b.complete) {
-      // الطبقة الأولى: A طبيعي
-      ctx.globalCompositeOperation = "source-over";
-      ctx.drawImage(t % 2 === 0 ? images.a : images.b, 0, 0);
-
-      // الطبقة الثانية: B بـ difference blend
-      // "difference" يحسب |A - B| → يُظهر الضوضاء بدلاً من إلغائها
-      ctx.globalCompositeOperation = "difference";
-      ctx.drawImage(t % 2 === 0 ? images.b : images.a, 0, 0);
-
-      // إعادة القناة الشفافية
-      ctx.globalCompositeOperation = "source-over";
-      t++;
-    }
-
-    raf = requestAnimationFrame(draw);
-  };
-
-  raf = requestAnimationFrame(draw);
-  return () => {
-    cancelAnimationFrame(raf);
-    ctx.globalCompositeOperation = "source-over"; // reset
-  };
-}, [pageData, images, blocked]);
+    const draw = () => {
+      if (ready && !blocked) {
+        // Alternate complementary frames every rAF tick.
+        // Eye averages A+B → clean image. Camera shutter samples one → noisy capture.
+        ctx.drawImage(parity ? images.b : images.a, 0, 0);
+        parity ^= 1;
+      } else if (blocked) {
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, pageData.w, pageData.h);
+      }
+      raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [pageData, images, blocked]);
 
   // Drifting watermark
   useEffect(() => {
