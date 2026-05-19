@@ -102,7 +102,10 @@ function clamp(v: number): number {
   return v < 0 ? 0 : v > 255 ? 255 : v;
 }
 
-function toDataUrl(c: HTMLCanvasElement): string {
-  // PNG preserves the exact noise pattern; JPEG would smooth it and reduce protection.
-  return c.toDataURL("image/png");
+function toBlob(c: HTMLCanvasElement): Promise<Blob> {
+  // PNG preserves the exact noise pattern; JPEG would smooth it.
+  return new Promise((resolve, reject) =>
+    c.toBlob(b => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/png"),
+  );
 }
+
