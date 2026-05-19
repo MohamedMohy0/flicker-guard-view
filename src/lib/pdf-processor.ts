@@ -13,7 +13,7 @@ export interface ProcessedPage {
 
 // Noise amplitude — higher = more camera disruption, lower = clearer to eye.
 const NOISE_AMPLITUDE = 200;
-const NOISE_BLOCK = 4;
+const NOISE_BLOCK = 8;
 
 export async function processPdf(
   file: File,
