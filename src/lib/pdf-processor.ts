@@ -5,16 +5,14 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
 export interface ProcessedPage {
-  a: string;
-  b: string;
+  a: Blob;
+  b: Blob;
   w: number;
   h: number;
 }
 
-// Noise amplitude — higher = more camera disruption, but reduces eye comfort.
-// 55 is a sweet spot: page still reads clearly to the eye, cameras get destroyed.
+// Noise amplitude — higher = more camera disruption, lower = clearer to eye.
 const NOISE_AMPLITUDE = 200;
-// Block size for noise — larger blocks survive camera downsampling/compression.
 const NOISE_BLOCK = 3;
 
 export async function processPdf(
@@ -27,7 +25,7 @@ export async function processPdf(
 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: 1.6 });
+    const viewport = page.getViewport({ scale: 1.4 });
     const w = Math.floor(viewport.width);
     const h = Math.floor(viewport.height);
 
@@ -41,12 +39,16 @@ export async function processPdf(
 
     const img = ctx.getImageData(0, 0, w, h);
     const { a, b } = buildComplementaryFrames(img, w, h);
+    const [aBlob, bBlob] = await Promise.all([toBlob(a), toBlob(b)]);
 
-    out.push({ a: toDataUrl(a), b: toDataUrl(b), w, h });
+    out.push({ a: aBlob, b: bBlob, w, h });
+    // Yield to UI thread between pages
+    await new Promise(r => setTimeout(r, 0));
     onProgress?.(i, pdf.numPages);
   }
   return out;
 }
+
 
 function buildComplementaryFrames(src: ImageData, w: number, h: number) {
   const cvA = document.createElement("canvas"); cvA.width = w; cvA.height = h;
