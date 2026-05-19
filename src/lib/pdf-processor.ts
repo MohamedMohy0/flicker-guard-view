@@ -18,8 +18,8 @@ export interface ProcessedPage {
 const NOISE_AMPLITUDE = 200;
 
 // Smaller blocks = harder OCR
-const NOISE_BLOCK_MIN = 4;
-const NOISE_BLOCK_MAX = 5;
+const NOISE_BLOCK_MIN = 3;
+const NOISE_BLOCK_MAX = 4;
 
 // Edge amplification
 const EDGE_BOOST = 1.8;
