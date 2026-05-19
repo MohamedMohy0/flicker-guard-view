@@ -44,20 +44,43 @@ function Dashboard() {
     try {
       setProgress("Reading PDF…");
       const pages = await processPdf(file, (c, t) => setProgress(`Securing page ${c}/${t}…`));
+
+      const docId = crypto.randomUUID();
+      const urlPages: { a: string; b: string; w: number; h: number }[] = [];
+
+      for (let i = 0; i < pages.length; i++) {
+        setProgress(`Uploading page ${i + 1}/${pages.length}…`);
+        const p = pages[i];
+        const base = `${user.id}/${docId}/${i}`;
+        const [ua, ub] = await Promise.all([
+          supabase.storage.from("pdf-pages").upload(`${base}_a.png`, p.a, {
+            contentType: "image/png", upsert: true,
+          }),
+          supabase.storage.from("pdf-pages").upload(`${base}_b.png`, p.b, {
+            contentType: "image/png", upsert: true,
+          }),
+        ]);
+        if (ua.error) throw ua.error;
+        if (ub.error) throw ub.error;
+        const aUrl = supabase.storage.from("pdf-pages").getPublicUrl(`${base}_a.png`).data.publicUrl;
+        const bUrl = supabase.storage.from("pdf-pages").getPublicUrl(`${base}_b.png`).data.publicUrl;
+        urlPages.push({ a: aUrl, b: bUrl, w: p.w, h: p.h });
+      }
+
       setProgress("Saving…");
-      const { data, error } = await supabase.from("documents").insert({
+      const { error } = await supabase.from("documents").insert({
+        id: docId,
         user_id: user.id,
         title: file.name.replace(/\.pdf$/i, ""),
-        pages: pages as unknown as never,
-        page_count: pages.length,
-      }).select("id").single();
+        pages: urlPages as unknown as never,
+        page_count: urlPages.length,
+      });
       if (error) throw error;
-      // Decrement credit
       await supabase.from("profiles").update({ credits: profile.credits - 1 }).eq("id", user.id);
       await refreshProfile();
       await loadDocs();
       toast.success("Document secured!");
-      copyLink(data!.id);
+      copyLink(docId);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -65,6 +88,7 @@ function Dashboard() {
       setProgress("");
     }
   };
+
 
   const copyLink = (id: string) => {
     const url = `${window.location.origin}/view/${id}`;
