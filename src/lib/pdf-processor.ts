@@ -14,26 +14,20 @@ export interface ProcessedPage {
    Tunables
 ========================================================= */
 
-// Higher = stronger camera interference
-const NOISE_AMPLITUDE = 200;
+const NOISE_AMPLITUDE = 180;
+const NOISE_BLOCK = 3;
 
-// Size of grouped noise blocks
-const NOISE_BLOCK = 4;
-
-// Fine moiré frequency
-const MOIRE_STRENGTH = 100;
-
-// RGB channel separation
+const MOIRE_STRENGTH = 28;
 const RGB_SHIFT = 3;
 
-// Temporal stripe intensity
-const STRIPE_STRENGTH = 40;
+const STRIPE_STRENGTH = 24;
+const OVERLAY_ALPHA = 0.05;
 
-// Dynamic overlay opacity
-const OVERLAY_ALPHA = 0.045;
+const PIXEL_JITTER = 1.8;
+const EDGE_WARP = 9;
 
 /* =========================================================
-   Main PDF Processor
+   Main Processor
 ========================================================= */
 
 export async function processPdf(
@@ -43,7 +37,8 @@ export async function processPdf(
     total: number,
   ) => void,
 ): Promise<ProcessedPage[]> {
-  const buf = await file.arrayBuffer();
+  const buf =
+    await file.arrayBuffer();
 
   const pdf =
     await pdfjs.getDocument({
@@ -96,15 +91,16 @@ export async function processPdf(
       viewport,
     }).promise;
 
-    /* ======================================
-       Source Image
-    ====================================== */
-
     const src =
-      ctx.getImageData(0, 0, w, h);
+      ctx.getImageData(
+        0,
+        0,
+        w,
+        h,
+      );
 
     /* ======================================
-       Build Complementary Frames
+       Build Frames
     ====================================== */
 
     const {
@@ -187,10 +183,14 @@ function buildComplementaryFrames(
   ====================================== */
 
   const blocksW =
-    Math.ceil(w / NOISE_BLOCK);
+    Math.ceil(
+      w / NOISE_BLOCK,
+    );
 
   const blocksH =
-    Math.ceil(h / NOISE_BLOCK);
+    Math.ceil(
+      h / NOISE_BLOCK,
+    );
 
   const noiseR =
     new Int16Array(
@@ -226,7 +226,7 @@ function buildComplementaryFrames(
   }
 
   /* ======================================
-     Main Pixel Loop
+     Main Loop
   ====================================== */
 
   for (let y = 0; y < h; y++) {
@@ -235,12 +235,8 @@ function buildComplementaryFrames(
         y / NOISE_BLOCK,
       );
 
-    /* --------------------------------------
-       Moving stripe phase
-    -------------------------------------- */
-
     const stripe =
-      Math.sin(y * 0.12) *
+      Math.sin(y * 0.11) *
       STRIPE_STRENGTH;
 
     for (let x = 0; x < w; x++) {
@@ -252,11 +248,51 @@ function buildComplementaryFrames(
       const bi =
         by * blocksW + bx;
 
+      /* ====================================
+         Pixel Jitter
+      ==================================== */
+
+      const jx =
+        Math.floor(
+          x +
+            Math.sin(
+              y * 0.2,
+            ) *
+              PIXEL_JITTER,
+        );
+
+      const jy =
+        Math.floor(
+          y +
+            Math.cos(
+              x * 0.15,
+            ) *
+              PIXEL_JITTER,
+        );
+
+      const sx =
+        Math.max(
+          0,
+          Math.min(
+            w - 1,
+            jx,
+          ),
+        );
+
+      const sy =
+        Math.max(
+          0,
+          Math.min(
+            h - 1,
+            jy,
+          ),
+        );
+
       const i =
-        (y * w + x) * 4;
+        (sy * w + sx) * 4;
 
       /* ====================================
-         Base Shared Noise
+         Base Noise
       ==================================== */
 
       const nR =
@@ -269,7 +305,7 @@ function buildComplementaryFrames(
         noiseB[bi];
 
       /* ====================================
-         Fine Moiré Pattern
+         Fine Moiré
       ==================================== */
 
       const moire =
@@ -302,7 +338,7 @@ function buildComplementaryFrames(
         OVERLAY_ALPHA;
 
       /* ====================================
-         RGB Channel Shift
+         RGB Shift
       ==================================== */
 
       const rgbShift =
@@ -311,7 +347,24 @@ function buildComplementaryFrames(
           : -RGB_SHIFT);
 
       /* ====================================
-         Final Noise
+         Edge Distortion
+      ==================================== */
+
+      const edgeWarp =
+        Math.sin(
+          y * 0.9 +
+            x * 0.12,
+        ) * EDGE_WARP;
+
+      const warp =
+        Math.cos(
+          x * 0.15 -
+            y * 0.07,
+        ) *
+        (EDGE_WARP * 0.7);
+
+      /* ====================================
+         Final Channels
       ==================================== */
 
       const finalR =
@@ -319,33 +372,56 @@ function buildComplementaryFrames(
         moire +
         stripe +
         overlay +
-        rgbShift;
+        rgbShift +
+        edgeWarp;
 
       const finalG =
         nG -
         moire * 0.6 +
-        overlay;
+        overlay +
+        warp;
 
       const finalB =
         nB +
         moire * 0.8 -
         stripe -
-        rgbShift;
+        rgbShift -
+        edgeWarp;
+
+      /* ====================================
+         Frame A/B Phase Distortion
+      ==================================== */
+
+      const phaseA =
+        Math.sin(
+          (x + y) * 0.08,
+        ) * 12;
+
+      const phaseB =
+        Math.cos(
+          (x - y) * 0.08,
+        ) * 12;
 
       /* ====================================
          Frame A
       ==================================== */
 
       aD[i] = clamp(
-        sd[i] + finalR,
+        sd[i] +
+          finalR +
+          phaseA,
       );
 
       aD[i + 1] = clamp(
-        sd[i + 1] + finalG,
+        sd[i + 1] +
+          finalG +
+          phaseA,
       );
 
       aD[i + 2] = clamp(
-        sd[i + 2] + finalB,
+        sd[i + 2] +
+          finalB +
+          phaseA,
       );
 
       aD[i + 3] = 255;
@@ -355,15 +431,21 @@ function buildComplementaryFrames(
       ==================================== */
 
       bD[i] = clamp(
-        sd[i] - finalR,
+        sd[i] -
+          finalR +
+          phaseB,
       );
 
       bD[i + 1] = clamp(
-        sd[i + 1] - finalG,
+        sd[i + 1] -
+          finalG +
+          phaseB,
       );
 
       bD[i + 2] = clamp(
-        sd[i + 2] - finalB,
+        sd[i + 2] -
+          finalB +
+          phaseB,
       );
 
       bD[i + 3] = 255;
@@ -371,25 +453,25 @@ function buildComplementaryFrames(
   }
 
   /* ======================================
-     Horizontal Scanline Layer
+     Scanlines
   ====================================== */
 
   applyScanlines(
     aD,
     w,
     h,
-    0.03,
+    0.035,
   );
 
   applyScanlines(
     bD,
     w,
     h,
-    -0.03,
+    -0.035,
   );
 
   /* ======================================
-     Write Frames
+     Write
   ====================================== */
 
   cxA.putImageData(
@@ -420,7 +502,11 @@ function applyScanlines(
   h: number,
   strength: number,
 ) {
-  for (let y = 0; y < h; y += 2) {
+  for (
+    let y = 0;
+    y < h;
+    y += 2
+  ) {
     const mul =
       1 + strength;
 
