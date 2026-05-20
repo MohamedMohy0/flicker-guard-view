@@ -21,13 +21,13 @@ const NOISE_AMPLITUDE = 200;
 const NOISE_BLOCK = 4;
 
 // Fine moiré frequency
-const MOIRE_STRENGTH = 60;
+const MOIRE_STRENGTH = 100;
 
 // RGB channel separation
-const RGB_SHIFT = 2;
+const RGB_SHIFT = 3;
 
 // Temporal stripe intensity
-const STRIPE_STRENGTH = 18;
+const STRIPE_STRENGTH = 40;
 
 // Dynamic overlay opacity
 const OVERLAY_ALPHA = 0.045;
