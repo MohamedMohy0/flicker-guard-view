@@ -21,7 +21,7 @@ const NOISE_AMPLITUDE = 200;
 const NOISE_BLOCK = 4;
 
 // Fine moiré frequency
-const MOIRE_STRENGTH = 24;
+const MOIRE_STRENGTH = 60;
 
 // RGB channel separation
 const RGB_SHIFT = 2;
